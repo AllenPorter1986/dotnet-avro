@@ -393,8 +393,7 @@ namespace Chr.Avro.Codegen
                                             .WithMembers(SyntaxFactory.List<MemberDeclarationSyntax>(
                                                 commonFields.Select(p => SyntaxFactory.PropertyDeclaration(
                                                     GetPropertyType(p.Type),
-                                                    p.Name).WithModifiers(
-                                                        SyntaxFactory.TokenList(SyntaxFactory.Token(SyntaxKind.PublicKeyword)))
+                                                    p.Name)
                                             .AddAccessorListAccessors(
                                                 SyntaxFactory.AccessorDeclaration(SyntaxKind.GetAccessorDeclaration)
                                                     .WithSemicolonToken(SyntaxFactory.Token(SyntaxKind.SemicolonToken)),
