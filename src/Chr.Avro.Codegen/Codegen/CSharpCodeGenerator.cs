@@ -143,7 +143,10 @@ namespace Chr.Avro.Codegen
 
             var unit = SyntaxFactory.CompilationUnit();
 
-            unit = unit.AddMembers(interfaceDeclarations.Select(s => s.Value).ToArray());
+            foreach (var keyValue in interfaceDeclarations)
+            {
+                unit = unit.AddMembers(keyValue.Value, GenerateClassWithInterface(keyValue.Value, $"{keyValue.Key}Unknown"));
+            }
 
             foreach (var group in candidates)
             {
@@ -428,6 +431,41 @@ namespace Chr.Avro.Codegen
             }
 
             return seen.OfType<NamedSchema>();
+        }
+
+        private static ClassDeclarationSyntax GenerateClassWithInterface(InterfaceDeclarationSyntax interfaceTypeSyntax, string className)
+        {
+            // Create the class declaration syntax
+            var typeSyntax = SyntaxFactory.ParseTypeName(interfaceTypeSyntax.Identifier.ValueText);
+
+            var classSyntax = SyntaxFactory.ClassDeclaration(className)
+                .WithModifiers(SyntaxFactory.TokenList(SyntaxFactory.Token(SyntaxKind.PublicKeyword)))
+                .WithBaseList(SyntaxFactory.BaseList(SyntaxFactory.SingletonSeparatedList<BaseTypeSyntax>(SyntaxFactory.SimpleBaseType(typeSyntax))));
+
+            // Get the properties from the interface type syntax
+            var interfaceProperties = interfaceTypeSyntax.Members.OfType<PropertyDeclarationSyntax>();
+
+            // Add the properties to the class syntax
+            foreach (var property in interfaceProperties)
+            {
+                var propertySyntax = SyntaxFactory.PropertyDeclaration(
+                    property.Type,
+                    property.Identifier)
+                .WithModifiers(SyntaxFactory.TokenList(SyntaxFactory.Token(SyntaxKind.PublicKeyword)))
+                .WithAccessorList(SyntaxFactory.AccessorList(SyntaxFactory.List<AccessorDeclarationSyntax>(
+                    new AccessorDeclarationSyntax[]
+                    {
+                        SyntaxFactory.AccessorDeclaration(SyntaxKind.GetAccessorDeclaration)
+                            .WithSemicolonToken(SyntaxFactory.Token(SyntaxKind.SemicolonToken)),
+                        SyntaxFactory.AccessorDeclaration(SyntaxKind.SetAccessorDeclaration)
+                            .WithSemicolonToken(SyntaxFactory.Token(SyntaxKind.SemicolonToken)),
+                    }
+                )));
+
+                classSyntax = classSyntax.AddMembers(propertySyntax);
+            }
+
+            return classSyntax;
         }
 
         private static List<RecordField> GetCommonFields(IEnumerable<RecordSchema> recordSchemas)
