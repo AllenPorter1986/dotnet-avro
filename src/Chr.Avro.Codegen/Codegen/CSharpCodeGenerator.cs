@@ -1,16 +1,15 @@
 namespace Chr.Avro.Codegen
 {
-    using System;
-    using System.Collections.Generic;
-    using System.IO;
-    using System.Linq;
-    using System.Reflection;
-    using System.Text;
     using Chr.Avro.Abstract;
     using Microsoft.CodeAnalysis;
     using Microsoft.CodeAnalysis.CSharp;
     using Microsoft.CodeAnalysis.CSharp.Syntax;
     using Microsoft.CodeAnalysis.Formatting;
+    using System;
+    using System.Collections.Generic;
+    using System.IO;
+    using System.Linq;
+    using System.Text;
 
     /// <summary>
     /// Generates C# classes and enums that match Avro schemas.
