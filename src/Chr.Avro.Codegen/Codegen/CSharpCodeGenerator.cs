@@ -4,6 +4,7 @@ namespace Chr.Avro.Codegen
     using System.Collections.Generic;
     using System.IO;
     using System.Linq;
+    using System.Reflection;
     using System.Text;
     using Chr.Avro.Abstract;
     using Microsoft.CodeAnalysis;
@@ -17,6 +18,9 @@ namespace Chr.Avro.Codegen
     public class CSharpCodeGenerator : ICodeGenerator
     {
         private readonly bool enableNullableReferenceTypes;
+        private int commonInterfaceCount = 0;
+        private Dictionary<string, InterfaceDeclarationSyntax> interfaceDeclarations = new Dictionary<string, InterfaceDeclarationSyntax>();
+        private Dictionary<string, string> interfaceDeclarationsMap = new Dictionary<string, string>();
 
         /// <summary>
         /// Initializes a new instance of the <see cref="CSharpCodeGenerator" /> class.
@@ -51,7 +55,9 @@ namespace Chr.Avro.Codegen
                     {
                         var child = SyntaxFactory
                             .PropertyDeclaration(
-                                GetPropertyType(field.Type),
+                                interfaceDeclarations.ContainsKey(field.Name) ?
+                                    SyntaxFactory.ParseTypeName(interfaceDeclarations[field.Name].Identifier.ValueText)
+                                    : GetPropertyType(field.Type),
                                 field.Name)
                             .AddModifiers(SyntaxFactory.Token(SyntaxKind.PublicKeyword))
                             .AddAccessorListAccessors(
@@ -73,6 +79,12 @@ namespace Chr.Avro.Codegen
             if (!string.IsNullOrEmpty(schema.Documentation))
             {
                 declaration = AddSummaryComment(declaration, schema.Documentation!);
+            }
+
+            if (interfaceDeclarationsMap.ContainsKey(schema.FullName) && interfaceDeclarations.ContainsKey(interfaceDeclarationsMap[schema.FullName]))
+            {
+                var interfaceTypeSyntax = SyntaxFactory.ParseTypeName(interfaceDeclarations[interfaceDeclarationsMap[schema.FullName]].Identifier.ValueText);
+                declaration = declaration.AddBaseListTypes(SyntaxFactory.SimpleBaseType(interfaceTypeSyntax));
             }
 
             return declaration;
@@ -131,6 +143,8 @@ namespace Chr.Avro.Codegen
             }
 
             var unit = SyntaxFactory.CompilationUnit();
+
+            unit = unit.AddMembers(interfaceDeclarations.Select(s => s.Value).ToArray());
 
             foreach (var group in candidates)
             {
@@ -343,7 +357,7 @@ namespace Chr.Avro.Codegen
             return node.WithLeadingTrivia(trivia);
         }
 
-        private static IEnumerable<NamedSchema> GetCandidateSchemas(Schema schema, ISet<Schema>? seen = null)
+        private IEnumerable<NamedSchema> GetCandidateSchemas(Schema schema, ISet<Schema>? seen = null)
         {
             seen ??= new HashSet<Schema>();
 
@@ -362,7 +376,44 @@ namespace Chr.Avro.Codegen
                     case RecordSchema r:
                         foreach (var field in r.Fields)
                         {
-                            GetCandidateSchemas(field.Type, seen);
+                            switch (field.Type)
+                            {
+                                case UnionSchema u:
+                                    var recordSchemas = u.Schemas.OfType<RecordSchema>();
+                                    if (recordSchemas.Count() > 1)
+                                    {
+                                        IEnumerable<TypeSyntax> types = recordSchemas.Select(other => GetPropertyType(other, false));
+
+                                        var commonFields = GetCommonFields(recordSchemas);
+
+                                        var interfaceSyntax = SyntaxFactory.InterfaceDeclaration($"ITodoRenameInterface{commonInterfaceCount}")
+                                            .WithModifiers(SyntaxFactory.TokenList(SyntaxFactory.Token(SyntaxKind.PublicKeyword)))
+                                            .WithMembers(SyntaxFactory.List<MemberDeclarationSyntax>(
+                                                commonFields.Select(p => SyntaxFactory.PropertyDeclaration(
+                                                    GetPropertyType(p.Type),
+                                                    p.Name).WithModifiers(
+                                                        SyntaxFactory.TokenList(SyntaxFactory.Token(SyntaxKind.PublicKeyword)))
+                                            .AddAccessorListAccessors(
+                                                SyntaxFactory.AccessorDeclaration(SyntaxKind.GetAccessorDeclaration)
+                                                    .WithSemicolonToken(SyntaxFactory.Token(SyntaxKind.SemicolonToken)),
+                                                SyntaxFactory.AccessorDeclaration(SyntaxKind.SetAccessorDeclaration)
+                                                    .WithSemicolonToken(SyntaxFactory.Token(SyntaxKind.SemicolonToken))))));
+
+                                        interfaceDeclarations.Add(field.Name, interfaceSyntax);
+
+                                        foreach (RecordSchema recordSchema in recordSchemas)
+                                        {
+                                            interfaceDeclarationsMap.Add(recordSchema.FullName, field.Name);
+                                        }
+                                    }
+
+                                    GetCandidateSchemas(field.Type, seen);
+                                    break;
+
+                                default:
+                                    GetCandidateSchemas(field.Type, seen);
+                                    break;
+                            }
                         }
 
                         break;
@@ -378,6 +429,45 @@ namespace Chr.Avro.Codegen
             }
 
             return seen.OfType<NamedSchema>();
+        }
+
+        private static List<RecordField> GetCommonFields(IEnumerable<RecordSchema> recordSchemas)
+        {
+            // Get the properties of each type
+            var fields = recordSchemas.Select(recordSchema => recordSchema.Fields).ToList();
+
+            // Get the common properties of all types
+            var commonFields = fields
+                .Aggregate(fields.First(), (prev, current) => prev.Intersect(current, new RecordFieldComparer()).ToArray())
+                .ToList();
+
+            return commonFields;
+        }
+
+        private class RecordFieldComparer : IEqualityComparer<RecordField>
+        {
+            public bool Equals(RecordField x, RecordField y)
+            {
+                return x.Name == y.Name && new SchemaComparer().Equals(x.Type, y.Type);
+            }
+
+            public int GetHashCode(RecordField obj)
+            {
+                return obj.Name.GetHashCode() ^ new SchemaComparer().GetHashCode(obj.Type);
+            }
+        }
+
+        private class SchemaComparer : IEqualityComparer<Schema>
+        {
+            public bool Equals(Schema x, Schema y)
+            {
+                return (x.LogicalType is null && y.LogicalType is null) || x.LogicalType?.GetType() == y.LogicalType?.GetType();
+            }
+
+            public int GetHashCode(Schema obj)
+            {
+                return obj.LogicalType?.GetType().GetHashCode() ?? -1;
+            }
         }
     }
 }

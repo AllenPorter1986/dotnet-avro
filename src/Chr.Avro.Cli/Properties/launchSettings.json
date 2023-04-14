@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "Chr.Avro.Cli": {
+      "commandName": "Project",
+      "commandLineArgs": "generate --registry-url http://kafkadvschemacl01.chrobinson.com:8081/ -s plan-test-event-sourcing-value -v 5 > GeneratedSchema.cs"
+    }
+  }
+}
